@@ -281,7 +281,7 @@ try {
 // The filename carries this too, and the two can drift. The publish step
 // compares them; if this constant and the filename disagree, treat the
 // constant as authoritative, because it is what is actually running.
-const BORG_VERSION = 'v204';
+const BORG_VERSION = 'v205';
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05060a);
@@ -6453,7 +6453,10 @@ const PDS = (() => {
       if (b.id === 'pdsNew') {
         const name = (typeof prompt === 'function')
           ? prompt('Name this design', 'Standard convergence') : 'New design';
-        if (name) createDesign(state.baseChoice || null, name).catch(err => {
+        // The base is the snapshot the browser is currently showing, which the
+        // payload already knows. state.baseChoice was never wired to anything,
+        // so this posted null and the server rejected it.
+        if (name) createDesign(state.base, name).catch(err => {
           state.error = err.message; emit();
         });
       }

@@ -360,7 +360,10 @@ const PDS = (() => {
       if (b.id === 'pdsNew') {
         const name = (typeof prompt === 'function')
           ? prompt('Name this design', 'Standard convergence') : 'New design';
-        if (name) createDesign(state.baseChoice || null, name).catch(err => {
+        // The base is the snapshot the browser is currently showing, which the
+        // payload already knows. state.baseChoice was never wired to anything,
+        // so this posted null and the server rejected it.
+        if (name) createDesign(state.base, name).catch(err => {
           state.error = err.message; emit();
         });
       }
