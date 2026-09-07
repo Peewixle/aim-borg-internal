@@ -232,20 +232,28 @@ class Handler(BaseHTTPRequestHandler):
         #
         # Placing it ahead of window.AIM_UDBR means the studio block is already
         # on the object by the time anything reads it.
-        js = (f'<script>window.AIM_UDBR={{studio:{json.dumps(block)}}};</script>\n')
+        # ASSIGN AFTER THE PAYLOAD, DO NOT WRAP IT.
+        #
+        # The first attempt wrapped the payload in Object.assign(...) and
+        # closed the paren at the next ';</script>'. In the work build that
+        # script also sets AIM_AUTHORING and AIM_DIRECT_START, so the paren
+        # landed after those instead of after the payload: a syntax error that
+        # killed the whole script. The Grid's camera still moved and nothing
+        # rendered.
+        #
+        # A separate script that runs AFTER the payload needs no surgery on it
+        # at all, and cannot break it.
         anchor = b'<script>window.AIM_UDBR='
         i = BODY.find(anchor)
         if i < 0:
-            # No payload to precede: serve unchanged rather than guess. A
-            # studio block the page never reads is better than a block placed
-            # somewhere it breaks the payload.
             return BODY
-        # The payload assigns window.AIM_UDBR outright, which would discard the
-        # studio block. Merge instead.
-        merged = BODY.replace(anchor, b'<script>window.AIM_UDBR=Object.assign('
-                                      b'window.AIM_UDBR||{},', 1)
-        merged = merged.replace(b';</script>', b');</script>', 1)
-        return js.encode() + merged
+        end = BODY.find(b'</script>', i)
+        if end < 0:
+            return BODY
+        end += len(b'</script>')
+        js = (f'\n<script>window.AIM_UDBR=window.AIM_UDBR||{{}};'
+              f'window.AIM_UDBR.studio={json.dumps(block)};</script>').encode()
+        return BODY[:end] + js + BODY[end:]
 
     def do_HEAD(self):
         self.do_GET()
