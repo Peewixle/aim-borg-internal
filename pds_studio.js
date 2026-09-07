@@ -201,7 +201,64 @@ const PDS = (() => {
   }
 
   async function history() {
-    return get(`/api/design/history?design=${state.design}`);
+    const r = await get(`/api/design/history?design=${state.design}`);
+    state.hist = r;
+    emit();
+    return r;
+  }
+
+  /** Who did what, and where they disagreed.
+   *
+   *  A design authored in the studio records this as it happens. A design
+   *  imported from a workbook has it reconstructed by comparing the artifacts,
+   *  which is why the contributor is a team rather than a person and why the
+   *  whole of one contribution lands as a single save. */
+  function historyHtml(h) {
+    if (!h) return '';
+    const saves = h.history || [], rules = h.rules || [];
+    if (!saves.length)
+      return `<div class="pds-empty">No history. This design has had no saves —
+        an imported design has none until its lineage is reconstructed.</div>`;
+    const contested = rules.filter(r => r.contested);
+    const byRule = {};
+    contested.forEach(r => (byRule[r.rule] ||= []).push(r));
+
+    const rows = saves.map(s => {
+      const mine = rules.filter(r => r.save === s.save_id);
+      return `<tr>
+        <td><b>${esc(s.saved_by)}</b></td>
+        <td class="num">${s.n_actions}</td>
+        <td class="dim">${esc(s.summary || '')}</td>
+        <td class="dim">${esc(s.saved_at)}</td></tr>`;
+    }).join('');
+
+    // The reversals, shown in order so a reviewer sees the decision and the
+    // correction on the same line rather than a net position.
+    const rev = Object.values(byRule).map(g => {
+      const ordered = g.slice().sort((a, b) => a.save - b.save);
+      const first = ordered[0], last = ordered[ordered.length - 1];
+      return `<tr>
+        <td>${esc(first.profile)}</td>
+        <td>${esc(first.field)} <span class="dim">(${esc(first.tab)} tab)</span></td>
+        <td><span class="pds-act pds-${first.action}">${esc(first.action)}</span>
+            ${esc(first.from_tier)} &rarr; ${esc(first.to_tier || '—')}
+            <div class="pds-attr">${esc(first.by)}</div></td>
+        <td><span class="pds-act pds-${last.action}">${esc(last.action)}</span>
+            ${esc(last.from_tier)} &rarr; ${esc(last.to_tier || '—')}
+            <div class="pds-attr">${esc(last.by)}</div></td></tr>`;
+    }).join('');
+
+    return `<div class="pds-cs-head">${saves.length} save(s), ${rules.length}
+        rule action(s)${contested.length
+        ? ` · <b>${Object.keys(byRule).length} rules were moved by more than one save</b>`
+        : ''}</div>
+      <table class="rules"><thead><tr><th>Contributor</th><th>Actions</th>
+        <th>What</th><th>When</th></tr></thead><tbody>${rows}</tbody></table>
+      ${rev ? `<div class="pds-cs-head">Reversed decisions — a rule one save
+        moved and another moved again. The change set shows only where these
+        ended up.</div>
+      <table class="rules"><thead><tr><th>Profile</th><th>Destination</th>
+        <th>First</th><th>Then</th></tr></thead><tbody>${rev}</tbody></table>` : ''}`;
   }
 
   async function saveReadme(text) {
@@ -376,7 +433,7 @@ const PDS = (() => {
   }
 
   return { init, queue, promote, demote, remove, revert, flush, status, can,
-           createDesign, openDesign, designs, designBarHtml,
+           createDesign, openDesign, designs, designBarHtml, historyHtml,
            changeSet, runChecks, history, saveReadme, complete, exportScript,
            ruleControls, statusHtml, changeSetHtml, findingsHtml, bind,
            onChange, state, AUTOSAVE_MS };

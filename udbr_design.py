@@ -415,6 +415,43 @@ class DesignStore:
                     base=d['base_snapshot'], counts=counts, total=len(cs))
 
     # ------------------------------------------------------------ history
+    def history_rules(self, design_id, save_id=None):
+        """The rules a save touched, with their destination so a reviewer can
+        read them rather than a list of GUIDs.
+
+        `contested` marks a rule touched by more than one save. That is the
+        number worth seeing: 42 of the RCM team's promotions were moved back
+        down by the consistency pass, and the net change set cannot show it —
+        it reports where a rule ended up, not that a decision was reversed.
+        """
+        d = self.get(design_id)
+        with self._lock:
+            rows = self.cx.execute("""
+                SELECT sr.save_id, sr.rule_guid, sr.action, sr.from_tier, sr.to_tier,
+                       s.saved_by, s.saved_at,
+                       COALESCE(b.tab, x.tab, '')                   AS tab,
+                       COALESCE(b.target_field, x.target_field, '')  AS field,
+                       COALESCE(bp.name, xp.name, '')                AS profile,
+                       (SELECT COUNT(DISTINCT o.save_id) FROM design_save_rule o
+                        JOIN design_save os ON os.save_id = o.save_id
+                        WHERE o.rule_guid = sr.rule_guid AND os.design_id = ?) AS touches
+                FROM design_save_rule sr
+                JOIN design_save s ON s.save_id = sr.save_id
+                LEFT JOIN rule b  ON b.rule_guid = sr.rule_guid AND b.snapshot_id = ?
+                LEFT JOIN profile bp ON bp.profile_row_id = b.profile_row_id
+                LEFT JOIN rule x  ON x.rule_guid = sr.rule_guid AND x.snapshot_id = ?
+                LEFT JOIN profile xp ON xp.profile_row_id = x.profile_row_id
+                WHERE s.design_id = ?
+                  AND (? IS NULL OR sr.save_id = ?)
+                ORDER BY sr.save_id, COALESCE(bp.name, xp.name), tab, field
+            """, (design_id, d['base_snapshot'], d['snapshot_id'], design_id,
+                  save_id, save_id)).fetchall()
+        return [dict(save=r['save_id'], rule=r['rule_guid'], action=r['action'],
+                     from_tier=r['from_tier'], to_tier=r['to_tier'],
+                     by=r['saved_by'], at=r['saved_at'], tab=r['tab'],
+                     field=r['field'], profile=r['profile'],
+                     contested=r['touches'] > 1) for r in rows]
+
     def history(self, design_id, limit=50):
         return [dict(r) for r in self.cx.execute("""
             SELECT s.save_id, s.saved_by, s.saved_at, s.n_actions, s.summary

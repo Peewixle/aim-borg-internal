@@ -301,7 +301,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({'changes': designs.change_set(did),
                                    'summary': designs.summary(did)})
             if path == '/api/design/history':
-                return self._json({'history': designs.history(did)})
+                # Saves, plus the rules each touched. `contested` marks a rule
+                # more than one save moved — the number the net change set
+                # cannot show, because it reports where a rule ended up rather
+                # than that a decision was reversed.
+                return self._json({'history': designs.history(did),
+                                   'rules': designs.history_rules(did)})
             if path == '/api/design/readme':
                 if body:
                     designs.set_readme(did, payload.get('text', ''))
