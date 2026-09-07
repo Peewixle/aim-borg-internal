@@ -27,6 +27,7 @@ from udbr_auth import Auth, SESSION_HOURS, ABSOLUTE_HOURS
 from udbr_design import DesignStore
 from udbr_snapcheck import check_snapshot
 from udbr_design_workbook import build as build_workbook
+from udbr_trace import trace as build_trace, rule_detail, source_map, set_review
 
 PORT     = int(os.environ.get('PORT', 8080))
 FILE     = os.environ.get('BORG_FILE', 'internal.html')
@@ -326,6 +327,28 @@ class Handler(BaseHTTPRequestHandler):
                 auth.log(who, 'design.checks', self._ip(),
                          f'design {did}, {res["total"]} findings')
                 return self._json(res)
+            # BG-56. Four surfaces over one profile. The snapshot is taken
+            # from the query, so a trace can be read on a design or on
+            # production, and the view states which.
+            if path.startswith('/api/trace'):
+                snap = int(q['snapshot'][0]) if 'snapshot' in q else (
+                    payload.get('snapshot'))
+                pg = (q['profile'][0] if 'profile' in q else payload.get('profile'))
+                if not snap or not pg:
+                    return self._json({'error': 'snapshot and profile required'}, 400)
+                if path == '/api/trace':
+                    return self._json(build_trace(UDBR_DB, snap, pg))
+                if path == '/api/trace/rules':
+                    return self._json(rule_detail(UDBR_DB, snap, pg))
+                if path == '/api/trace/sources':
+                    return self._json(source_map(UDBR_DB, snap, pg))
+                if path == '/api/trace/review':
+                    set_review(UDBR_DB, snap, pg, payload['tab'], payload['field'],
+                               who, payload.get('verdict'),
+                               payload.get('disposition'), payload.get('note'))
+                    auth.log(who, 'trace.review', self._ip(),
+                             f'{payload["tab"]}/{payload["field"]}')
+                    return self._json({'ok': True})
             if path == '/api/design/workbook':
                 # BG-65. Separate from the script export and repeatable on the
                 # same design: the script is for AIM, the workbook is for the
