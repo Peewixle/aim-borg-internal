@@ -281,7 +281,7 @@ try {
 // The filename carries this too, and the two can drift. The publish step
 // compares them; if this constant and the filename disagree, treat the
 // constant as authoritative, because it is what is actually running.
-const BORG_VERSION = 'v207';
+const BORG_VERSION = 'v208';
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05060a);
@@ -7423,23 +7423,69 @@ renderSummary();
       (ctx ? ` <span class="ctx">&mdash; opened from ${ctx}</span>` : '');
     renderSummary();
     panel.classList.add('on');
+    syncCloseLabel();
     window.scrollTo(0,0);
   }
-  function close(){ panel.classList.remove('on'); }
-  document.getElementById('udbrClose').onclick = close;
+  // STEP BACK ONE LEVEL, don't dismiss.
+  //
+  // The browser has two depths: the profile summary and a profile's detail.
+  // close() dismissed the panel from either, so Escape from a detail threw you
+  // all the way out to the 3D model and you had to double-click the node and
+  // find the profile again. The trace already stepped back one level; the
+  // browser did not, so the same key did two different things one level apart.
+  //
+  // Depth is read from the DOM rather than tracked in a variable: the back
+  // button exists only on a detail view, so its presence IS the depth. A
+  // tracked variable would drift the first time something re-rendered without
+  // updating it.
+  function atDetail(){ return !!document.getElementById('back'); }
+
+  function dismiss(){ panel.classList.remove('on'); }
+
+  function stepBack(){
+    if (atDetail()) {
+      const b = document.getElementById('back');
+      if (b) { b.click(); return; }   // the summary, via the path that already works
+    }
+    dismiss();
+  }
+  document.getElementById('udbrClose').onclick = stepBack;
+
+  // The label follows the behaviour. A button reading "Close" that goes up one
+  // level is worse than either behaviour on its own, because the person cannot
+  // predict which they will get.
+  function syncCloseLabel(){
+    const b = document.getElementById('udbrClose');
+    if (!b) return;
+    b.innerHTML = atDetail() ? 'Back &nbsp;esc' : 'Close &nbsp;esc';
+  }
+  // Re-checked after any click inside the card, because that is what changes
+  // depth: opening a profile, or going back to the summary.
+  // Bound in the CAPTURE phase and read after the handlers that change depth
+  // have run. setTimeout deferred it past the paint, so the label lagged a
+  // frame behind the view - and lagged past an assertion entirely under jsdom.
+  document.getElementById('udbrCard')
+    .addEventListener('click', () => { syncCloseLabel(); }, false);
 
   // Click the surround to dismiss. Clicks inside the card must not bubble out
   // to this handler, or scrolling and reading would close the thing.
   panel.addEventListener('mousedown', e => {
-    if (e.target === panel) { e.stopPropagation(); close(); }
+    // Clicking the surround dismisses outright rather than stepping back:
+    // clicking away from the whole thing means leaving, not going up one.
+    if (e.target === panel) { e.stopPropagation(); dismiss(); }
   });
   const card = document.getElementById('udbrCard');
   if (card) card.addEventListener('mousedown', e => { e.stopPropagation(); });
 
   window.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && panel.classList.contains('on')){
-      e.stopPropagation(); close();
-    }
+    if (e.key !== 'Escape' || !panel.classList.contains('on')) return;
+    // The trace and its condition dialog sit above the browser and handle
+    // their own Escape. Leave them to it, or one keypress closes two things.
+    const tr = document.getElementById('trPanel');
+    const dlg = document.getElementById('trDlg');
+    if ((tr && tr.classList.contains('on')) || (dlg && dlg.classList.contains('on'))) return;
+    e.stopPropagation();
+    stepBack();
   }, true);
 
   // ---- ways in that do not depend on the nodes being on screen ----
@@ -7483,7 +7529,10 @@ renderSummary();
           window.__probe.gateLocked()) return;
       ae.blur();
     }
-    if (panel.classList.contains('on')) { close(); return; }
+    // P toggles the whole browser, so it dismisses from any depth rather than
+    // stepping back — unlike Escape. A toggle that only went up one level
+    // would need pressing twice from a detail, which is not a toggle.
+    if (panel.classList.contains('on')) { dismiss(); return; }
     e.preventDefault(); e.stopPropagation();
     open('P key');
   }, true);
