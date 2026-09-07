@@ -1,9 +1,0 @@
-{
-  "name": "aim-borg-internal",
-  "private": true,
-  "version": "1.0.0",
-  "description": "AIM BORG internal build. Production customer configuration. Authenticated.",
-  "main": "server.js",
-  "scripts": { "start": "node server.js", "users": "node users.js" },
-  "engines": { "node": ">=22.5" }
-}
