@@ -223,9 +223,29 @@ class Handler(BaseHTTPRequestHandler):
                              readme=row['readme'])
             else:
                 block.update(design=None, writable=False)
-        js = ('<script>window.AIM_UDBR=window.AIM_UDBR||{};'
-              f'window.AIM_UDBR.studio={json.dumps(block)};</script>')
-        return BODY.replace(b'</body>', js.encode() + b'</body>', 1)
+        # INJECTED BEFORE THE PAYLOAD, not before </body>.
+        #
+        # The overlay calls PDS.init(D) inline, partway down the body. A block
+        # appended before </body> runs AFTER that, so the studio initialised
+        # with no payload and rendered nothing — the tabs and controls were in
+        # the file and invisible.
+        #
+        # Placing it ahead of window.AIM_UDBR means the studio block is already
+        # on the object by the time anything reads it.
+        js = (f'<script>window.AIM_UDBR={{studio:{json.dumps(block)}}};</script>\n')
+        anchor = b'<script>window.AIM_UDBR='
+        i = BODY.find(anchor)
+        if i < 0:
+            # No payload to precede: serve unchanged rather than guess. A
+            # studio block the page never reads is better than a block placed
+            # somewhere it breaks the payload.
+            return BODY
+        # The payload assigns window.AIM_UDBR outright, which would discard the
+        # studio block. Merge instead.
+        merged = BODY.replace(anchor, b'<script>window.AIM_UDBR=Object.assign('
+                                      b'window.AIM_UDBR||{},', 1)
+        merged = merged.replace(b';</script>', b');</script>', 1)
+        return js.encode() + merged
 
     def do_HEAD(self):
         self.do_GET()

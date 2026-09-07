@@ -61,6 +61,7 @@ const PDS = (() => {
     state.writable = !!(s && s.mode === 'live' && s.writable);
     state.heldBy   = s ? s.heldBy : null;
     state.readme   = (s && s.readme) || '';
+    state.name     = s ? s.name : null;
     state.mode     = s ? s.mode : 'none';
     emit();
     return state;
@@ -70,12 +71,21 @@ const PDS = (() => {
 
   function can(action) {
     if (!state.enabled) return { ok: false, why: 'the studio is not available' };
+    // ORDER: most specific reason first. Demo has no design either, so
+    // checking for a design before checking the mode told a demo user to
+    // create one — which they cannot do, and which is not why they are
+    // blocked.
+    //
     // Checked before the writable gate for the MESSAGE, not as a second
     // barrier: writable can never be true in demo, so this never changes
-    // whether an action is refused, only what the person is told. In demo the
-    // reason is the mode, not a lock someone else holds.
+    // whether an action is refused, only what the person is told.
     if (state.mode === 'demo')
       return { ok: false, why: 'demo mode — the studio is read-only and nothing is saved' };
+    // No design open is a distinct state from read-only. The reason has to say
+    // so, or the only control that IS available — creating one — reads as
+    // broken rather than as the next step.
+    if (!state.design)
+      return { ok: false, why: 'no design is open — create one to start authoring' };
     if (!state.writable)
       return { ok: false, why: state.heldBy
         ? `${state.heldBy} is editing this design` : 'this design is read-only' };
@@ -200,6 +210,24 @@ const PDS = (() => {
     emit();
   }
 
+  /** BG-57. A design is created from a production dump; the studio then edits
+   *  the copy. Reloads afterwards, because the server decides writability and
+   *  the claim, and the page has to be told rather than assume. */
+  async function createDesign(base, name) {
+    const r = await post('/api/design/create', { base, name });
+    if (typeof location !== 'undefined') location.reload();
+    return r;
+  }
+
+  async function openDesign(id) {
+    await post('/api/design/claim', { design: id });
+    if (typeof location !== 'undefined') location.reload();
+  }
+
+  async function designs() {
+    return get('/api/designs');
+  }
+
   async function complete() {
     // Forced write first: marking complete with a change still in the debounce
     // window would finish a design that does not include it.
@@ -239,6 +267,27 @@ const PDS = (() => {
                     title="Demote to ${t}">&darr;${t[0]}</button>`).join('') +
       `<button class="pds-del" data-rule="${esc(rule)}"${dis} title="Delete from the design">&times;</button>` +
       `</span>`;
+  }
+
+  /** The design bar: which design is open, or the control to start one.
+   *  Rendered whenever a studio payload exists, so a product instance with no
+   *  design shows the way forward rather than an empty tab strip. */
+  function designBarHtml() {
+    if (!state.enabled) return '';
+    if (state.mode === 'demo')
+      return `<div class="pds-bar">Demo — the studio is shown over invented data.
+        Nothing is saved.</div>`;
+    if (!state.design)
+      return `<div class="pds-bar">No design is open.
+        <button id="pdsNew" class="pds-primary">New design from the current dump</button>
+        <span class="dim">A design copies the dump and is edited in place;
+        the dump itself is never modified.</span></div>`;
+    return `<div class="pds-bar">Design <b>${esc(state.name || state.design)}</b>
+      ${state.writable ? '' : '<span class="dim">read-only</span>'}
+      <button id="pdsChanges" class="pds-primary">Changes</button>
+      <button id="pdsChecks" class="pds-primary">Run checks</button>
+      ${state.writable ? '<button id="pdsComplete" class="pds-primary">Mark complete</button>' : ''}
+      </div>`;
   }
 
   function statusHtml() {
@@ -302,6 +351,20 @@ const PDS = (() => {
       if (b.classList.contains('pds-down')) demote(rule, b.dataset.tier);
       if (b.classList.contains('pds-del'))  remove(rule);
     });
+
+    // The design bar's own buttons carry no data-rule, so they are matched by
+    // id rather than falling through the rule handler above.
+    root.addEventListener('click', e => {
+      const b = e.target.closest('button');
+      if (!b || b.disabled) return;
+      if (b.id === 'pdsNew') {
+        const name = (typeof prompt === 'function')
+          ? prompt('Name this design', 'Standard convergence') : 'New design';
+        if (name) createDesign(state.baseChoice || null, name).catch(err => {
+          state.error = err.message; emit();
+        });
+      }
+    });
     // Force the write before the tab goes away, so the debounce window cannot
     // outlive the session.
     if (typeof window !== 'undefined') {
@@ -310,6 +373,7 @@ const PDS = (() => {
   }
 
   return { init, queue, promote, demote, remove, revert, flush, status, can,
+           createDesign, openDesign, designs, designBarHtml,
            changeSet, runChecks, history, saveReadme, complete, exportScript,
            ruleControls, statusHtml, changeSetHtml, findingsHtml, bind,
            onChange, state, AUTOSAVE_MS };
