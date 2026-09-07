@@ -281,7 +281,7 @@ try {
 // The filename carries this too, and the two can drift. The publish step
 // compares them; if this constant and the filename disagree, treat the
 // constant as authoritative, because it is what is actually running.
-const BORG_VERSION = 'v208';
+const BORG_VERSION = 'v209';
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05060a);
@@ -5878,6 +5878,40 @@ tr.row:focus{outline:2px solid var(--t-customer);outline-offset:-2px}
 .fld.displaced{color:var(--ink-dim);text-decoration:line-through;
   text-decoration-color:#3a4756}
 
+/* ---- BG-66 / BG-67 selection rule surfaces --------------------------
+   Bands are stacked blocks rather than table sections: an empty level must
+   read as a deliberate statement that no rules exist there, and an empty
+   <tbody> reads as a rendering failure. */
+#selPanel{position:fixed;inset:0;z-index:9500;display:none;background:rgba(4,7,11,.97)}
+#selPanel.on{display:block}
+#selCard{position:absolute;top:4vh;bottom:4vh;left:6vw;right:6vw;
+  background:#080b10;border:1px solid #223044;border-radius:6px;
+  overflow:hidden;display:flex;flex-direction:column}
+.sel-band{margin:0 0 4px}
+.sel-bandhead{padding:7px 18px;font:600 12px ui-monospace,Menlo,monospace;
+  color:#0b1017}
+.sel-System .sel-bandhead{background:#d9e2f3}
+.sel-Organization .sel-bandhead{background:#deebd9}
+.sel-Customer .sel-bandhead{background:#fff2cc}
+.sel-Agency .sel-bandhead{background:#f2e4ef}
+.sel-bandhead .dim{color:#3d4650;font-weight:400;margin-left:10px}
+.sel-ent{padding:8px 18px 4px;font-size:12px;color:#d6f4fb}
+.sel-ent .dim{color:#5d6b78;margin-left:8px}
+#selCard table.rules{margin:0 18px 10px;width:calc(100% - 36px)}
+.sel-target{color:#7fd8e8;border-bottom:1px dotted #2f9fb0;cursor:pointer}
+.sel-target:hover{color:#d6f4fb}
+/* An ambiguous target is refused, not opened. Marked, and the candidates
+   listed, because a reader needs to know WHY it will not open. */
+.sel-amb{color:#e0ae5a;border-bottom:1px dashed rgba(216,154,42,.6)}
+.sel-cands{margin-top:4px;font-size:11px;color:#c9b48a;
+  background:rgba(216,154,42,.10);border:1px solid rgba(216,154,42,.35);
+  border-radius:3px;padding:6px 9px}
+.sel-cands ul{margin:4px 0 4px 16px;padding:0}
+.sel-missing{color:#f08a72;border-bottom:1px dashed rgba(200,69,47,.6)}
+.sel-warn{color:#e0ae5a}
+.sel-before{color:#8fc4ea}
+.sel-after{color:#d9a8d4}
+
 /* ---- BG-56 trace ------------------------------------------------------
    A wide table read left to right. It scrolls horizontally on purpose: the
    eight rule bands and three outputs do not compress without losing the thing
@@ -6085,7 +6119,7 @@ tr.flagged.sev-Low td{background:rgba(63,154,90,.045)}
     <span class="conf">PRODUCTION DATA — WORK BUILD</span>
   </header>
   <div id="view"></div>
-<div id="trPanel"><div id="trCard"></div></div>
+
 <div id="trDlg"></div>
 </div>
 </div>
@@ -6800,6 +6834,160 @@ if (typeof window !== 'undefined') window.TRACE = TRACE;
 
 </script>
 <script>
+/* ==========================================================================
+   pds_selection.js — BG-66 and BG-67.
+
+   Two surfaces, one module. They share a shape — bands, entities, priority
+   order — and differ in what a rule holds, so the rendering of a rule row is
+   the only thing that varies. Two modules would have duplicated the banding.
+
+   These are NOT the profile browser. The Payer Selection Rules and Profile
+   Selection Rules nodes used to open it, which was wrong: the browser is for
+   profiles. A selection rule appears in the browser only in the one case where
+   it answers a question about a profile — BG-38's "Selected when" block, which
+   stays.
+   ========================================================================== */
+'use strict';
+
+const SELRULES = (() => {
+
+  const state = { kind: null, data: null, open: false, onClose: null,
+                  onProfile: null };
+
+  const esc = s => String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  async function get(path) {
+    const r = await fetch(path);
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    return d;
+  }
+
+  /** kind is 'payer' or 'profile'. onProfile is called when a reader selects a
+   *  resolved target, so navigation stays the caller's business. */
+  async function open(kind, snapshot, onClose, onProfile) {
+    state.kind = kind;
+    state.onClose = onClose || null;
+    state.onProfile = onProfile || null;
+    state.open = true;
+    state.data = await get(`/api/selection/${kind}?snapshot=${snapshot}`);
+    return state.data;
+  }
+
+  function close() {
+    state.open = false;
+    if (state.onClose) state.onClose();
+  }
+
+  /* ---------------------------------------------------------- rendering */
+
+  function header() {
+    const d = state.data;
+    if (!d) return '';
+    return `<div class="tr-head">
+      <h2>${esc(d.title)}</h2>
+      <span class="tr-meta">${d.total} rule${d.total === 1 ? '' : 's'}${
+        d.kind === 'profile' && d.ambiguous
+          ? ` · <b class="sel-warn">${d.ambiguous} with an ambiguous target</b>` : ''}${
+        d.kind === 'profile' && d.missing
+          ? ` · ${d.missing} targeting a missing profile` : ''}</span>
+      <span class="tr-prov ${d.snapshot_kind === 'design' ? 'tr-design' : ''}">${
+        esc(d.source)} — ${esc(d.snapshot_kind)}, snapshot ${d.snapshot}</span>
+    </div>
+    <div class="tr-tabs"><button class="tr-close" id="selClose">Close &nbsp;esc</button></div>
+    <div class="tr-note-box">${esc(d.note)}${
+      d.kind === 'payer'
+        ? ` The payer is shown as the rule records it; payer resolution is ${esc(d.payer_resolution)}.`
+        : ` ${esc(d.default_profile_note)}`}</div>`;
+  }
+
+  /** A payer rule row. Timing is rendered as the rule holds it — never
+   *  inferred — because every rule in the estate carries the same value and a
+   *  surface built to that could hard-code what is actually an attribute. */
+  function payerRow(r) {
+    return `<tr>
+      <td class="num">${esc(r.priority)}</td>
+      <td class="tr-field">${esc(r.payer)}</td>
+      <td>${esc(r.form_type)}</td>
+      <td class="${/before/i.test(r.timing) ? 'sel-before' : 'sel-after'}">${
+        esc(r.timing)}</td>
+      <td><span class="tr-rule" data-cond="${esc(r.condition)}">${
+        esc(r.condition.slice(0, 70))}${r.condition.length > 70 ? '…' : ''}</span></td>
+      <td class="dim">${esc(r.description)}</td></tr>`;
+  }
+
+  /** A profile rule row. The target is a NAME, and names are not unique, so
+   *  resolution is one of three states and an ambiguous one is refused rather
+   *  than opened to the first match. */
+  function profileRow(r) {
+    const res = r.resolution || { status: 'missing', candidates: [] };
+    let target;
+    if (res.status === 'resolved') {
+      target = `<a class="sel-target" data-profile="${esc(res.profile)}"
+                   title="open this profile">${esc(r.target)}</a>`;
+    } else if (res.status === 'ambiguous') {
+      target = `<span class="sel-amb" title="the target names more than one profile">${
+        esc(r.target)}</span>
+        <div class="sel-cands">${res.candidates.length} profiles carry this name —
+          the rule does not say which:
+          <ul>${res.candidates.map(c => `<li>${esc(c.tier)} ·
+            ${esc(c.entity || 'AIM (System)')} · ${esc(c.kind)}</li>`).join('')}</ul>
+          Not opened, because opening one of several would be a guess.</div>`;
+    } else {
+      target = `<span class="sel-missing" title="no profile of this name exists">${
+        esc(r.target || '(none)')}</span>`;
+    }
+    return `<tr>
+      <td class="num">${esc(r.priority)}</td>
+      <td>${target}</td>
+      <td><span class="tr-rule" data-cond="${esc(r.condition)}">${
+        esc(r.condition.slice(0, 80))}${r.condition.length > 80 ? '…' : ''}</span></td>
+      <td class="dim">${esc(r.description)}</td></tr>`;
+  }
+
+  function bands() {
+    const d = state.data;
+    if (!d) return '';
+    const cols = d.kind === 'payer'
+      ? ['Pri', 'Payer selected', 'Form type', 'Timing', 'Condition', 'Description']
+      : ['Pri', 'Profile selected', 'Condition', 'Description'];
+    const row = d.kind === 'payer' ? payerRow : profileRow;
+
+    return d.bands.map(b => {
+      // An empty band is rendered, not suppressed. In this estate three of
+      // four are empty, and that is the information: these rules can exist at
+      // any level, and here they do not.
+      if (!b.count) {
+        return `<div class="sel-band sel-${b.tier}">
+          <div class="sel-bandhead">${esc(b.tier)}
+            <span class="dim">no rules at this level</span></div></div>`;
+      }
+      const groups = b.entities.map(e => `
+        <div class="sel-ent">${esc(e.entity)}
+          <span class="dim">${e.count} rule${e.count === 1 ? '' : 's'},
+            priority order</span></div>
+        <table class="rules"><thead><tr>${
+          cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>
+        <tbody>${e.rules.map(row).join('')}</tbody></table>`).join('');
+      return `<div class="sel-band sel-${b.tier}">
+        <div class="sel-bandhead">${esc(b.tier)}
+          <span class="dim">${b.count} rule${b.count === 1 ? '' : 's'}</span></div>
+        ${groups}</div>`;
+    }).join('');
+  }
+
+  const render = () => header() + `<div class="tr-scroll">${bands()}</div>`;
+
+  return { open, close, render, state, get isOpen() { return state.open; } };
+})();
+
+if (typeof module !== 'undefined' && module.exports) module.exports = SELRULES;
+if (typeof window !== 'undefined') window.SELRULES = SELRULES;
+
+</script>
+<script>
 (function(){
   if(!window.AIM_GRID){ console.warn('UDBR overlay: no grid hook, panel disabled'); return; }
   const panel = document.getElementById('udbrPanel');
@@ -7179,6 +7367,56 @@ function ruleRows(rules, displacedBy, overrides, pid){
   return h + `</tbody></table>`;
 }
 
+// BG-66 / BG-67. Opened from the Payer or Profile Selection Rules node, not
+// from the profile browser. Exposed on window because the Grid's node registry
+// lives outside this panel's scope.
+async function openSelection(kind){
+  if (typeof SELRULES === 'undefined') return;
+  const panel = document.getElementById('selPanel');
+  const card  = document.getElementById('selCard');
+  card.innerHTML = '<div class="tr-empty-note">Loading\u2026</div>';
+  panel.classList.add('on');
+  const snap = (SD.snapshot ? SD.snapshot.id : (D.snapshot && D.snapshot.id));
+  try {
+    await SELRULES.open(kind, snap,
+      () => panel.classList.remove('on'),
+      // A resolved target opens that profile. An ambiguous one never reaches
+      // here: the surface refuses it and lists the candidates instead.
+      guid => {
+        panel.classList.remove('on');
+        const p = SD.profiles.concat(SD.defaults).find(x => x.id === guid);
+        if (p) { openPanelIfClosed(); renderDetail(p, p.tier && false); }
+      });
+    card.innerHTML = SELRULES.render();
+  } catch (e) {
+    card.innerHTML = `<div class="tr-empty-note">Could not load the rules: ${esc(e.message)}</div>`;
+  }
+}
+function openPanelIfClosed(){
+  const p = document.getElementById('udbrPanel');
+  if (p && !p.classList.contains('on')) p.classList.add('on');
+}
+if (typeof window !== 'undefined') window.AIM_OPEN_SELECTION = openSelection;
+
+// The trace and selection panels are appended to BODY, not left inside the
+// browser's card.
+//
+// The shell is injected into #udbrCard, so anything declared in its markup is
+// a descendant of the browser panel — and therefore hidden whenever the
+// browser is closed. A selection rule node opens its surface without opening
+// the browser at all, so the surface was marked open and invisible.
+(function mountPanels(){
+  ['trPanel', 'selPanel'].forEach(id => {
+    if (document.getElementById(id)) return;
+    const outer = document.createElement('div');
+    outer.id = id;
+    const inner = document.createElement('div');
+    inner.id = id === 'trPanel' ? 'trCard' : 'selCard';
+    outer.appendChild(inner);
+    document.body.appendChild(outer);
+  });
+})();
+
 // BG-56 navigation. The trace is one level in from Profile Detail, opened for
 // the profile already selected there — no profile is re-selected. Escape steps
 // back exactly one level, from the trace to the detail, and the tabs within
@@ -7312,6 +7550,15 @@ document.addEventListener('click', async e => {
     return openTrace(t.closest('#trOpen').dataset.guid);
 
   if (t.closest && t.closest('#trClose')) { TRACE.close(); return; }
+  if (t.closest && t.closest('#selClose')) { SELRULES.close(); return; }
+
+  // A resolved target. Ambiguous ones render as text with no handler, so
+  // there is nothing to click — refusal is structural, not a check.
+  const tgt = t.closest && t.closest('.sel-target');
+  if (tgt && SELRULES.state.onProfile) {
+    SELRULES.state.onProfile(tgt.dataset.profile);
+    return;
+  }
 
   const tab = t.closest && t.closest('.tr-tab');
   if (tab) {
@@ -7355,6 +7602,9 @@ document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   const dlg = document.getElementById('trDlg');
   if (dlg && dlg.classList.contains('on')) { dlg.classList.remove('on'); e.stopPropagation(); return; }
+  if (typeof SELRULES !== 'undefined' && SELRULES.isOpen) {
+    SELRULES.close(); e.stopPropagation(); return;
+  }
   if (typeof TRACE !== 'undefined' && TRACE.isOpen) { TRACE.close(); e.stopPropagation(); }
 }, true);
 
@@ -7483,7 +7733,9 @@ renderSummary();
     // their own Escape. Leave them to it, or one keypress closes two things.
     const tr = document.getElementById('trPanel');
     const dlg = document.getElementById('trDlg');
-    if ((tr && tr.classList.contains('on')) || (dlg && dlg.classList.contains('on'))) return;
+    const sel = document.getElementById('selPanel');
+    if ((tr && tr.classList.contains('on')) || (dlg && dlg.classList.contains('on'))
+        || (sel && sel.classList.contains('on'))) return;
     e.stopPropagation();
     stepBack();
   }, true);
@@ -7542,14 +7794,29 @@ renderSummary();
   // deliberately identical - filtering per node would hide the inheritance
   // chain, which is the whole reason the detail page is laid out by tier.
   const n = window.AIM_GRID.nodes;
+
+  // THE PROFILE NODES OPEN THE PROFILE BROWSER. The selection rule nodes do
+  // not, and used to.
+  //
+  // All four AOH cabinets were claimed for the browser because any of them
+  // seemed a reasonable way in. That was wrong: the browser is for profiles,
+  // and a node labelled Payer Selection Rules should open payer selection
+  // rules. A selection rule belongs in the browser only where it answers a
+  // question about a profile, which is BG-38's "Selected when" block and
+  // stays.
   const label = {
     defaultProfile : 'Default Profile',
-    proSR          : 'Profile Selection Rules',
-    selectedProfile: 'Selected Profile',
-    paySR          : 'Payer Selection Rules'
+    selectedProfile: 'Selected Profile'
   };
   Object.keys(label).forEach(k => {
     if (n[k]) window.AIM_GRID.onNode(n[k], () => open(label[k]));
+  });
+
+  // BG-66 and BG-67. Each node opens its own rule set.
+  const selNodes = { paySR: 'payer', proSR: 'profile' };
+  Object.keys(selNodes).forEach(k => {
+    if (n[k] && window.AIM_OPEN_SELECTION)
+      window.AIM_GRID.onNode(n[k], () => window.AIM_OPEN_SELECTION(selNodes[k]));
   });
   window.AIM_UDBR_OPEN = open;
   console.log('UDBR overlay loaded on ' + window.AIM_GRID.version +

@@ -28,6 +28,7 @@ from udbr_design import DesignStore
 from udbr_snapcheck import check_snapshot
 from udbr_design_workbook import build as build_workbook
 from udbr_trace import trace as build_trace, rule_detail, source_map, set_review
+from udbr_selection import payer_rules, profile_rules
 
 PORT     = int(os.environ.get('PORT', 8080))
 FILE     = os.environ.get('BORG_FILE', 'internal.html')
@@ -332,6 +333,19 @@ class Handler(BaseHTTPRequestHandler):
                 auth.log(who, 'design.checks', self._ip(),
                          f'design {did}, {res["total"]} findings')
                 return self._json(res)
+            # BG-66 and BG-67. The whole rule set for one rule type, read
+            # from its node, independent of any profile.
+            if path.startswith('/api/selection/'):
+                snap = int(q['snapshot'][0]) if 'snapshot' in q else payload.get('snapshot')
+                if not snap:
+                    return self._json({'error': 'snapshot required'}, 400)
+                which = path.rsplit('/', 1)[-1]
+                if which == 'payer':
+                    return self._json(payer_rules(UDBR_DB, snap))
+                if which == 'profile':
+                    return self._json(profile_rules(UDBR_DB, snap))
+                return self._json({'error': f'unknown rule type {which}'}, 404)
+
             # BG-56. Four surfaces over one profile. The snapshot is taken
             # from the query, so a trace can be read on a design or on
             # production, and the view states which.
