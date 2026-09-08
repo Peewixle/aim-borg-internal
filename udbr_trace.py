@@ -160,7 +160,11 @@ def trace(db, snapshot_id, profile_guid):
             row['copied_from'].add(r['ovalue'])
 
     out = []
-    for (tab, field), row in sorted(rows.items()):
+    # FIELD, then TAB — the same order the browser uses, and for the same
+    # reason: it puts the two Emergency destinations on adjacent rows so the
+    # Tab column shows they differ. Sorted (tab, field), they would sit pages
+    # apart and a reader could see one without ever noticing the other.
+    for (tab, field), row in sorted(rows.items(), key=lambda kv: (kv[0][1], kv[0][0])):
         # Eight bands, always all eight. BG-56: empty columns are displayed,
         # not suppressed — an absent band is information.
         bands = []
