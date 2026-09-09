@@ -293,6 +293,19 @@ class DesignStore:
                     f'design is held by {holder or "another session"}')
             try:
                 d = self.get(design_id)
+                # A DESIGN IS THE ONLY THING THE STUDIO EDITS.
+                #
+                # Belt as well as braces: the client refuses authoring off the
+                # design, but a rule identifier posted directly must not be
+                # able to touch a production snapshot. Production is what AIM
+                # holds; changing it is the migration script's job, not the
+                # studio's.
+                kind = self.cx.execute('SELECT kind FROM snapshot WHERE snapshot_id=?',
+                                       (d['snapshot_id'],)).fetchone()
+                if kind and kind['kind'] != 'design':
+                    raise PermissionError(
+                        f'design {design_id} points at a {kind["kind"]} snapshot; '
+                        f'the studio only edits designs')
                 touched = []
                 for a in actions:
                     guid, act = a['rule'], a['action']

@@ -62,12 +62,22 @@ const PDS = (() => {
     state.heldBy   = s ? s.heldBy : null;
     state.readme   = (s && s.readme) || '';
     state.name     = s ? s.name : null;
+    // The snapshot the DESIGN edits. Authoring is refused unless the browser
+    // is displaying this same snapshot — see can().
+    state.designSnapshot = s ? s.designSnapshot : null;
     state.mode     = s ? s.mode : 'none';
     emit();
     return state;
   }
 
   /* ------------------------------------------------------------ actions */
+
+  /** Called by the browser whenever the displayed snapshot changes, so can()
+   *  can refuse authoring on anything but the design being edited. */
+  function viewing(snapshotId) {
+    state.viewing = snapshotId;
+    emit();
+  }
 
   function can(action) {
     if (!state.enabled) return { ok: false, why: 'the studio is not available' };
@@ -86,6 +96,23 @@ const PDS = (() => {
     // broken rather than as the next step.
     if (!state.design)
       return { ok: false, why: 'no design is open — create one to start authoring' };
+
+    // YOU CAN ONLY AUTHOR THE SNAPSHOT YOU ARE LOOKING AT.
+    //
+    // The browser rendered production while the studio edited the design, so
+    // the controls were computed from one snapshot's tiers and applied to
+    // another's. Promoting a rule that sat at Customer in production but was
+    // already at System in the design failed server-side with a direction
+    // error, and the row showed nothing.
+    //
+    // Production is also not editable in principle: it is what AIM holds. The
+    // studio proposes changes to a DESIGN, and applying them is the migration
+    // script's job.
+    if (state.viewing != null && state.designSnapshot != null &&
+        state.viewing !== state.designSnapshot)
+      return { ok: false, viewingOther: true,
+               why: `you are viewing another snapshot — switch to ${
+                 state.name || 'the design'} to author it` };
     if (!state.writable)
       return { ok: false, why: state.heldBy
         ? `${state.heldBy} is editing this design` : 'this design is read-only' };
@@ -156,6 +183,8 @@ const PDS = (() => {
     if (state.error)               return { kind: 'error',   text: 'Not saved — ' + state.error };
     if (state.inflight)            return { kind: 'saving',  text: 'Saving…' };
     if (state.pending.length)      return { kind: 'unsaved', text: 'Unsaved changes' };
+    const g = can('promote');
+    if (g.viewingOther)            return { kind: 'readonly', text: g.why };
     if (!state.writable)           return { kind: 'readonly',
                                             text: state.heldBy ? `Read-only — ${state.heldBy} is editing`
                                                                : 'Read-only' };
@@ -312,6 +341,11 @@ const PDS = (() => {
    *  so a prospect sees what the product does. */
   function ruleControls(rule, tier) {
     const g = can('promote');
+    // On another snapshot the controls are omitted entirely rather than shown
+    // disabled. A disabled control implies "not now"; here it is "not this
+    // snapshot", and a row of dead buttons on every rule of a production view
+    // is noise that invites the click that failed silently before.
+    if (g.viewingOther) return '';
     const dis = g.ok ? '' : ' disabled';
     const title = g.ok ? '' : ` title="${esc(g.why)}"`;
     const TIERS = ['System', 'Organization', 'Customer', 'Agency'];
@@ -334,6 +368,14 @@ const PDS = (() => {
     if (state.mode === 'demo')
       return `<div class="pds-bar">Demo — the studio is shown over invented data.
         Nothing is saved.</div>`;
+    const g = can('promote');
+    if (g.viewingOther)
+      return `<div class="pds-bar">Editing <b>${esc(state.name || state.design)}</b>,
+        but you are viewing another snapshot.
+        <span class="dim">Authoring is disabled here. Production is what AIM
+        holds and is never edited in the studio &mdash; select
+        ${esc(state.name || 'the design')} in the snapshot picker to author
+        it.</span></div>`;
     if (!state.design)
       return `<div class="pds-bar">No design is open.
         <button id="pdsNew" class="pds-primary">New design from the current dump</button>
@@ -432,7 +474,7 @@ const PDS = (() => {
     }
   }
 
-  return { init, queue, promote, demote, remove, revert, flush, status, can,
+  return { init, queue, promote, demote, remove, revert, flush, status, can, viewing,
            createDesign, openDesign, designs, designBarHtml, historyHtml,
            changeSet, runChecks, history, saveReadme, complete, exportScript,
            ruleControls, statusHtml, changeSetHtml, findingsHtml, bind,

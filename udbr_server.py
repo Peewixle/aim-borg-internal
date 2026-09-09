@@ -221,6 +221,11 @@ class Handler(BaseHTTPRequestHandler):
                 writable, holder = designs.claim(d['design_id'], user['username'])
                 row = designs.get(d['design_id'])
                 block.update(design=d['design_id'], base=d['base_snapshot'],
+                             # The snapshot the design EDITS. Authoring is
+                             # refused unless the browser is displaying it:
+                             # controls computed from production's tiers and
+                             # applied to the design's failed silently.
+                             designSnapshot=row['snapshot_id'],
                              name=d['name'], writable=writable, heldBy=holder,
                              readme=row['readme'])
             else:
