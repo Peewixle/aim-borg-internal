@@ -281,7 +281,7 @@ try {
 // The filename carries this too, and the two can drift. The publish step
 // compares them; if this constant and the filename disagree, treat the
 // constant as authoritative, because it is what is actually running.
-const BORG_VERSION = 'v212';
+const BORG_VERSION = 'v213';
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05060a);
@@ -6122,7 +6122,7 @@ tr.flagged.sev-Low td{background:rgba(63,154,90,.045)}
 
 <div class="wrap">
   <header>
-    <h1>AIM UDBR Browser</h1>
+    <h1 id="htitle">AIM UDBR Browser</h1>
     <span class="sub" id="hsub"></span>
     <span class="conf">PRODUCTION DATA — WORK BUILD</span>
   </header>
@@ -7075,6 +7075,18 @@ function defaultsFor(p, tier){
     d.cust === p.cust));
 }
 
+
+// The header names the page, not just the tool.
+//
+// Both depths read "AIM UDBR Browser", so nothing on screen said which one you
+// were on — the only cue was whether a back button existed. Paired with the
+// Back/Close label, the header now says where you ARE and the button says
+// where it would take you.
+function setTitle(page){
+  const h = document.getElementById('htitle');
+  if (h) h.textContent = page ? `AIM UDBR Browser - ${page}` : 'AIM UDBR Browser';
+}
+
 function selectionFor(p){
   return SD.selection.filter(s => s.target === p.name);
 }
@@ -7084,6 +7096,7 @@ function selectionFor(p){
 // element, and a parameter of the same name shadowed it, so `view.innerHTML`
 // assigned a property to a string and the page rendered empty with no error.
 function renderSummary(mode){
+  setTitle('Summary');
   mode = mode || 'profiles';
   if (mode === 'findings') return renderFindings();
   const byCust = {};
@@ -7461,6 +7474,9 @@ async function openTrace(guid){
 }
 
 function renderDetail(p, isDefault){
+  // The Default Profile detail uses this same path but is not a specific
+  // profile, so it names itself accordingly.
+  setTitle(isDefault ? 'Default Profile Detail' : 'Profile Detail');
   const sels = isDefault ? [] : selectionFor(p);
 
   // Fields this profile sets itself. Any default rule on the same field is
