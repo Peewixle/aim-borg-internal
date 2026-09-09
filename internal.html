@@ -281,7 +281,7 @@ try {
 // The filename carries this too, and the two can drift. The publish step
 // compares them; if this constant and the filename disagree, treat the
 // constant as authoritative, because it is what is actually running.
-const BORG_VERSION = 'v213';
+const BORG_VERSION = 'v214';
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05060a);
@@ -7542,35 +7542,56 @@ function renderDetail(p, isDefault){
     h += `</div>`;
   }
 
-  // Sections in firing order. Empty tiers are shown deliberately: the gap is
-  // the information. Three of four tiers hold nothing today, and promotion is
-  // the act of filling them.
-  let ord = 0;
+  // THIS PROFILE FIRST, the inherited defaults below it.
+  //
+  // The bands used to run in firing order, defaults first, which is true of
+  // execution and wrong for this page: you arrive here to see one profile, and
+  // four bands of somebody else's rules stood between you and it. A profile
+  // with six rules of its own read as empty.
+  //
+  // Firing order is still stated, in words, on both headings — and the trace is
+  // where execution order is the subject.
+  h += `<div class="sec Profile"><div class="sechead">
+    <span class="nm">${isDefault ? "Default profile rules" : "This profile"}</span>
+    <span class="src">${isDefault ? esc(p.tier + " tier")
+                                  : "fires after the inherited defaults below"}</span>
+    <span class="cnt">${p.rules.length} rules</span></div>`;
+  h += p.rules.length ? ruleRows(p.rules, null, overrides, p.id, true)
+    : `<div class="empty">This profile defines no mapping rules of its own.</div>`;
+  h += `</div>`;
+
   if(!isDefault){
-    TIERS.forEach(t=>{
-      const ds = defaultsFor(p,t);
-      const rules = ds.flatMap(d=>d.rules);
-      const scope = ds.map(d=>d.agency||d.cust||d.org||"all organizations")
-                      .filter(Boolean).join(", ") || "not defined";
-      ord++;
+    // A tier is APPLICABLE only where this profile has an entity at it. An
+    // Organization-tier profile with no customer has no Customer or Agency
+    // default to inherit from — "not defined" is a different statement from
+    // "0 rules", and showing them identically wasted half the screen on bands
+    // that cannot exist.
+    const applicable = TIERS.filter(t => defaultsFor(p, t).length);
+    const skipped = TIERS.filter(t => !defaultsFor(p, t).length);
+
+    h += `<div class="inherit"><div class="inherithead">
+      Inherited from the Default Profile
+      <span class="dim">fires BEFORE this profile's rules${
+        skipped.length ? ` &middot; no ${skipped.join(", ")} default applies to this profile`
+                       : ''}</span></div>`;
+
+    // Empty but APPLICABLE tiers stay visible: the gap is the information, and
+    // promotion is the act of filling it.
+    applicable.forEach(t => {
+      const ds = defaultsFor(p, t);
+      const rules = ds.flatMap(d => d.rules);
+      const scope = ds.map(d => d.agency || d.cust || d.org || "all organizations")
+                      .filter(Boolean).join(", ");
       h += `<div class="sec ${t}"><div class="sechead">
-        <span class="ord">${ord}</span><span class="nm">${t}</span>
+        <span class="nm">${t}</span>
         <span class="src">default profile &middot; ${esc(scope)}</span>
         <span class="cnt">${rules.length} rules</span></div>`;
       h += rules.length ? ruleRows(rules, overrides, null, ds.length?ds[0].id:null, false)
         : `<div class="empty">No default rules at this tier.</div>`;
       h += `</div>`;
     });
+    h += `</div>`;
   }
-  ord++;
-  h += `<div class="sec Profile"><div class="sechead">
-    <span class="ord">${ord}</span>
-    <span class="nm">${isDefault?"Default profile rules":"This profile"}</span>
-    <span class="src">${isDefault?esc(p.tier+" tier"):"fires after the defaults"}</span>
-    <span class="cnt">${p.rules.length} rules</span></div>`;
-  h += p.rules.length ? ruleRows(p.rules, null, overrides, p.id, true)
-    : `<div class="empty">This profile defines no mapping rules of its own.</div>`;
-  h += `</div>`;
 
   h += `<div class="legend">
     <span><span class="ov wins">overrides default</span> this profile sets the field, replacing an inherited value</span>
