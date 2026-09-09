@@ -281,7 +281,7 @@ try {
 // The filename carries this too, and the two can drift. The publish step
 // compares them; if this constant and the filename disagree, treat the
 // constant as authoritative, because it is what is actually running.
-const BORG_VERSION = 'v214';
+const BORG_VERSION = 'v215';
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05060a);
@@ -6115,6 +6115,146 @@ tr.flagged.sev-Low td{background:rgba(63,154,90,.045)}
   tr.row{transition:background .12s}
 }
 
+/* ======================================================================
+   PRINT — the profile detail on paper.
+
+   The person needs to send one profile to the Standards Manager when raising
+   an issue about it. A screenshot cannot carry the whole page, is not
+   searchable, and records nothing about which snapshot it came from.
+
+   Browser print, not a generated file: works in the demo build, needs no
+   server, and the browser's own Save as PDF still produces a document.
+
+   Three things differ from the screen ON PURPOSE. Conditions print in FULL,
+   because a truncated condition on paper is information the reader cannot
+   recover. Authoring controls do not print, because they are actions rather
+   than information. And severity is carried by the word as well as the fill,
+   because colour does not survive a monochrome printer.
+   ====================================================================== */
+@media print {
+  /* Light on white. The screen palette would consume a cartridge per profile
+     and read worse than plain text. */
+  :root { color-scheme: light; }
+  html, body, .wrap, #udbrPanel, #udbrCard {
+    background: #fff !important; color: #111 !important;
+    /* TRANSFORM MUST BE CLEARED, not just position.
+       The card is centred with left:50% plus translateX(-50%). Setting
+       position:static left the transform in place, so the whole page printed
+       shifted half a page left and clipped. */
+    position: static !important; inset: auto !important;
+    transform: none !important;
+    left: auto !important; right: auto !important;
+    top: auto !important; bottom: auto !important;
+    width: auto !important; max-width: none !important;
+    overflow: visible !important; height: auto !important;
+    max-height: none !important; border: 0 !important;
+    box-shadow: none !important; display: block !important;
+    padding: 0 !important; margin: 0 !important;
+  }
+
+  /* The model, the control panel and every navigation affordance are gone.
+     Suppressed for ANY print, not only the detail, so an accidental Cmd+P
+     elsewhere does not produce a page of dark canvas. */
+  canvas, #hud, #panel, #legend, #introOverlay, #gateBox,
+  #udbrBtn, #trPanel, #selPanel, #trDlg,
+  /* The AIM-BORG title card is a fixed overlay on the model. It printed ON TOP
+     of the page content, because suppressing the canvas does not suppress the
+     banner that floats above it. */
+  #aimBorgHeader, #brand, #titleCard,
+  .back, #trOpen, #prBtn, #udbrClose, .pds-primary, .pds-ctl, .pds-status,
+  .pds-bar, .tab, .snapwrap, .conf { display: none !important; }
+
+  /* A HEADER ON EVERY PAGE. A loose sheet arriving by email has to say what it
+     is and how current it was, because nothing around it does. Built from data
+     attributes so the text is real rather than a CSS guess. */
+  .wrap::before {
+    content: attr(data-print-head);
+    display: block; font: 9.5pt/1.4 -apple-system, "Segoe UI", sans-serif;
+    color: #444; border-bottom: 0.6pt solid #999;
+    padding-bottom: 5pt; margin-bottom: 12pt;
+  }
+  header { display: none !important; }
+
+  h2 { font: 700 15pt/1.2 -apple-system, "Segoe UI", sans-serif;
+       color: #111 !important; margin: 0 0 4pt; }
+  .meta, .meta span { color: #444 !important; font-size: 9pt !important; }
+  .tier { border: 0.6pt solid #666 !important; color: #111 !important;
+          background: none !important; padding: 0 4pt !important; }
+
+  /* Findings first and not faint: if this page is being sent about an issue,
+     the finding IS the message. */
+  .fbox { border: 0.6pt solid #999 !important; background: #fafafa !important;
+          padding: 7pt 9pt !important; margin: 10pt 0 !important;
+          break-inside: avoid; }
+  .fbox .lbl, .fbox .tx, .fbox .ck { color: #111 !important; }
+  .fbadge { border: 0.6pt solid #666 !important; color: #111 !important;
+            padding: 0 4pt !important; font-weight: 700 !important; }
+  .fbadge.High   { background: #f8cbad !important; }
+  .fbadge.Medium { background: #ffe699 !important; }
+  .fbadge.Low    { background: #e2efda !important; }
+
+  .selbox { border-left: 2pt solid #666 !important; background: #fafafa !important;
+            padding: 7pt 9pt !important; margin: 10pt 0 !important;
+            break-inside: avoid; }
+  .selbox .lbl, .selbox .none, .selbox .mono, .selbox .dim { color: #111 !important; }
+
+  /* Band tints match UDBR_Profile_Design_v11.xlsx, so a printed profile and a
+     workbook sheet read as the same family of document. The Standards Manager
+     already reads these four colours as AOH levels. */
+  .sechead { color: #111 !important; border: 0 !important;
+             padding: 5pt 7pt !important; break-after: avoid; }
+  .sec { border: 0 !important; margin: 0 0 8pt !important; break-inside: auto; }
+  .sec.System       .sechead { background: #d9e2f3 !important; }
+  .sec.Organization .sechead { background: #deebd9 !important; }
+  .sec.Customer     .sechead { background: #fff2cc !important; }
+  .sec.Agency       .sechead { background: #f2e4ef !important; }
+  .sec.Profile      .sechead { background: #e8e8e8 !important;
+                               border-left: 3pt solid #333 !important; }
+  .sechead .nm { font-weight: 700; }
+  .sechead .src, .sechead .cnt { color: #444 !important; }
+  .inherithead { color: #111 !important; border: 0 !important;
+                 padding: 10pt 0 5pt !important; break-after: avoid; }
+  .inherit { border-top: 0.6pt solid #999 !important; }
+  .inherithead .dim { color: #444 !important; }
+
+  table.rules { width: 100% !important; background: none !important;
+                border-collapse: collapse; font-size: 8.5pt; }
+  table.rules th { background: #f2f2f2 !important; color: #111 !important;
+                   border-bottom: 0.6pt solid #999 !important;
+                   text-align: left; padding: 3pt 5pt !important; }
+  /* The field name lives in a span with its own light colour, so a rule on
+     the cell does not reach it. Same for the section heading. */
+  .fld, .fldwrap, .sechead .nm, .sechead .ord,
+  table.rules td span { color: #111 !important; }
+  .fld.displaced { color: #555 !important; text-decoration: line-through; }
+  table.rules td { color: #111 !important; padding: 3pt 5pt !important;
+                   border-bottom: 0.4pt solid #ddd !important;
+                   vertical-align: top; }
+  /* A rule never splits across two sheets: half a rule is worse than a rule
+     on the next page. */
+  table.rules tr { break-inside: avoid; }
+  thead { display: table-header-group; }   /* column headers repeat per page */
+
+  /* CONDITIONS IN FULL. On screen they clip with a click to expand; on paper
+     the click is unavailable, so the clip would simply lose the condition. */
+  .cond, .cond.clip { max-width: none !important; white-space: normal !important;
+                      overflow: visible !important; text-overflow: clip !important;
+                      display: inline !important; }
+  .always, .from, .dim, .num { color: #444 !important; }
+  .unres { border: 0.6pt solid #666 !important; color: #111 !important; }
+  /* Override badges keep their meaning: the word carries it, the fill assists. */
+  .ov { border: 0.6pt solid #666 !important; color: #111 !important;
+        background: none !important; padding: 0 3pt !important; }
+  .ov.wins { background: #f8cbad !important; }
+  .ov.lost { background: #eee !important; }
+  .legend { color: #444 !important; border-top: 0.6pt solid #999 !important;
+            font-size: 8pt !important; padding-top: 6pt !important; }
+  .legend .ov { font-size: 8pt !important; }
+
+  @page { margin: 14mm 12mm; }
+}
+
+
 </style>
 <div id="udbrPanel">
   <div id="udbrCard">
@@ -7082,6 +7222,25 @@ function defaultsFor(p, tier){
 // were on — the only cue was whether a back button existed. Paired with the
 // Back/Close label, the header now says where you ARE and the button says
 // where it would take you.
+
+// The print header, set as a data attribute the print stylesheet reads.
+//
+// Carries the provenance, which matters more on paper than on screen: a loose
+// sheet arriving by email has to say what it is and how current it was,
+// because nothing around it does.
+function setPrintHead(page, subject){
+  const w = document.querySelector('.wrap');
+  if (!w) return;
+  const sn = SNAPS.find(x => x.id === CUR) || {};
+  const when = new Date().toLocaleDateString('en-US',
+    { day: 'numeric', month: 'short', year: 'numeric' });
+  w.setAttribute('data-print-head',
+    [`AIM UDBR Browser \u00b7 ${page}`,
+     subject || '',
+     `${sn.source || '?'} \u00b7 ${sn.kind || '?'} \u00b7 snapshot ${sn.id ?? '?'}`,
+     `printed ${when}`].filter(Boolean).join('   \u2014   '));
+}
+
 function setTitle(page){
   const h = document.getElementById('htitle');
   if (h) h.textContent = page ? `AIM UDBR Browser - ${page}` : 'AIM UDBR Browser';
@@ -7097,6 +7256,7 @@ function selectionFor(p){
 // assigned a property to a string and the page rendered empty with no error.
 function renderSummary(mode){
   setTitle('Summary');
+  setPrintHead('Summary');
   mode = mode || 'profiles';
   if (mode === 'findings') return renderFindings();
   const byCust = {};
@@ -7477,6 +7637,7 @@ function renderDetail(p, isDefault){
   // The Default Profile detail uses this same path but is not a specific
   // profile, so it names itself accordingly.
   setTitle(isDefault ? 'Default Profile Detail' : 'Profile Detail');
+  setPrintHead(isDefault ? 'Default Profile Detail' : 'Profile Detail', p.name);
   const sels = isDefault ? [] : selectionFor(p);
 
   // Fields this profile sets itself. Any default rule on the same field is
@@ -7501,7 +7662,10 @@ function renderDetail(p, isDefault){
   const traceBtn = (!isDefault && p.id && typeof TRACE !== 'undefined')
     ? `<button class="pds-primary" id="trOpen" data-guid="${esc(p.id)}">Trace this profile</button>`
     : '';
-  let h = `<button class="back" id="back">&#8592; All profiles</button>${traceBtn}
+  // Print sits with the other two controls. window.print() opens the browser's
+  // own dialog, from which the person chooses a printer or Save as PDF.
+  const printBtn = `<button class="pds-primary" id="prBtn">Print</button>`;
+  let h = `<button class="back" id="back">&#8592; All profiles</button>${traceBtn}${printBtn}
     <div class="dhead"><h2>${esc(p.name)}</h2><div class="meta">
       <span><span class="tier ${p.tier}">${p.tier}</span></span>
       <span>${esc(shortCust(p.cust) || p.org || "system")}</span>
@@ -7615,6 +7779,12 @@ document.addEventListener('click', async e => {
   const t = e.target;
   const card = document.getElementById('trCard');
 
+  if (t.closest && t.closest('#prBtn')) {
+    // Conditions are expanded before printing: the stylesheet unclips them,
+    // but any that were expanded on screen must not double up.
+    window.print();
+    return;
+  }
   if (t.closest && t.closest('#trOpen'))
     return openTrace(t.closest('#trOpen').dataset.guid);
 
