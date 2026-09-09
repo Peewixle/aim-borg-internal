@@ -281,7 +281,7 @@ try {
 // The filename carries this too, and the two can drift. The publish step
 // compares them; if this constant and the filename disagree, treat the
 // constant as authoritative, because it is what is actually running.
-const BORG_VERSION = 'v216';
+const BORG_VERSION = 'v217';
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05060a);
@@ -6162,6 +6162,11 @@ tr.flagged.sev-Low td{background:rgba(63,154,90,.045)}
      banner that floats above it. */
   #aimBorgHeader, #brand, #titleCard,
   .back, #trOpen, #prBtn, #udbrClose, .pds-primary, .pds-ctl, .pds-status,
+  /* The snapshot picker is a CONTROL, not information. It printed as a live
+     dropdown, which on paper is a grey box with one option showing. What the
+     print needs from it - the source, the kind and the id - is in the header
+     already. The as-of label goes with it for the same reason. */
+  .snapsel, #snapPick, .asof, #prFind,
   .pds-bar, .tab, .snapwrap, .conf { display: none !important; }
 
   /* A HEADER ON EVERY PAGE. A loose sheet arriving by email has to say what it
@@ -6250,6 +6255,22 @@ tr.flagged.sev-Low td{background:rgba(63,154,90,.045)}
   .legend { color: #444 !important; border-top: 0.6pt solid #999 !important;
             font-size: 8pt !important; padding-top: 6pt !important; }
   .legend .ov { font-size: 8pt !important; }
+
+  /* BG-69: the findings section on paper.
+     Grouped by check, severity-ordered within it, because the working unit is
+     a category - someone takes "all the duplicate rules", not one row at a
+     time. Every finding prints, including those that need scrolling on screen:
+     nothing is lost to the viewport. */
+  .tblhead { break-after: avoid; padding: 8pt 0 4pt !important;
+             border-bottom: 0.6pt solid #999 !important; }
+  .tblhead h2 { font: 700 11.5pt/1.3 -apple-system, "Segoe UI", sans-serif;
+                color: #111 !important; }
+  .tblhead .n { color: #444 !important; font-size: 9pt !important; }
+  .pname { color: #111 !important; }
+  /* A finding never splits across two sheets: half a finding is worse than a
+     finding on the next page. */
+  table tr { break-inside: avoid; }
+  table thead { display: table-header-group; }
 
   @page { margin: 14mm 12mm; }
 }
@@ -7245,14 +7266,20 @@ function printFilename(page, subject){
     .trim();
   return `AIM ${page} Report${safe ? ' - ' + safe : ''}`;
 }
+function applyPrintTitle(){
+  if (_titleBefore === null) _titleBefore = document.title;
+  const h = document.getElementById('htitle');
+  const page = h ? h.textContent.replace(/^AIM UDBR Browser\s*-\s*/, '') : 'Report';
+  const subj = (document.querySelector('.dhead h2') || {}).textContent || '';
+  document.title = printFilename(page, subj);
+  return document.title;
+}
 if (typeof window !== 'undefined') {
-  window.addEventListener('beforeprint', () => {
-    if (_titleBefore === null) _titleBefore = document.title;
-    const h = document.getElementById('htitle');
-    const page = h ? h.textContent.replace(/^AIM UDBR Browser\s*-\s*/, '') : 'Report';
-    const subj = (document.querySelector('.dhead h2') || {}).textContent || '';
-    document.title = printFilename(page, subj);
-  });
+  window.applyPrintTitle = applyPrintTitle;
+  // beforeprint covers Cmd+P. The button sets the title BEFORE calling
+  // print(), because Chrome fixes the suggested filename at the moment print()
+  // is called and a title set inside beforeprint can arrive too late.
+  window.addEventListener('beforeprint', applyPrintTitle);
   window.addEventListener('afterprint', () => {
     if (_titleBefore !== null) { document.title = _titleBefore; _titleBefore = null; }
   });
@@ -7478,6 +7505,8 @@ function renderReadme(){
 
 function renderFindings(){
   if (CUR !== FINDINGS_SNAP) return renderSummary('profiles');
+  setTitle('Findings');
+  setPrintHead('Findings');
   // Grouped by check, severity-ordered within it. The working unit is a
   // category - someone takes "all the duplicate rules", not one row at a time.
   const byCheck = {};
@@ -7488,9 +7517,13 @@ function renderFindings(){
   });
   const known = new Set(SD.profiles.concat(SD.defaults).map(p=>p.id));
   let h = tabsHtml('findings') + designBannerHtml();
+  // BG-69. A findings list is the thing most likely to be sent to someone and
+  // worked through item by item; on screen it scrolls, on paper it can be
+  // marked up.
   h += `<div class="tblhead"><h2>System integrity findings</h2>
     <span class="n">${FIND.length} findings across ${order.length} checks, ${
-      FIND.filter(f=>f.sev==='High').length} high</span></div>`;
+      FIND.filter(f=>f.sev==='High').length} high</span>
+    <button class="pds-primary" id="prFind">Print</button></div>`;
   order.forEach(ck => {
     const list = byCheck[ck].slice().sort((a,b)=>
       (SEVRANK[a.sev]-SEVRANK[b.sev]) || String(a.subject).localeCompare(String(b.subject)));
@@ -7809,10 +7842,13 @@ document.addEventListener('click', async e => {
   const t = e.target;
   const card = document.getElementById('trCard');
 
+  if (t.closest && t.closest('#prFind')) { window.print(); return; }
   if (t.closest && t.closest('#prBtn')) {
-    // Conditions are expanded before printing: the stylesheet unclips them,
-    // but any that were expanded on screen must not double up.
-    window.print();
+    // Title FIRST, then print. Chrome fixes the suggested Save as PDF
+    // filename when print() is called, so setting it inside beforeprint can
+    // be too late.
+    applyPrintTitle();
+    setTimeout(() => window.print(), 0);
     return;
   }
   if (t.closest && t.closest('#trOpen'))
