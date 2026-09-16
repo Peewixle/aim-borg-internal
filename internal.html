@@ -281,7 +281,7 @@ try {
 // The filename carries this too, and the two can drift. The publish step
 // compares them; if this constant and the filename disagree, treat the
 // constant as authoritative, because it is what is actually running.
-const BORG_VERSION = 'v221';
+const BORG_VERSION = 'v222';
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05060a);
@@ -3933,8 +3933,22 @@ presentationBtn.addEventListener('click', () => {
 // control produced a perfectly functional circle with NO LABEL above it — the
 // panel drew what it was told, which was three labels for four buttons. Every
 // label below now comes from the button data itself.
-const CP_COL_X = [176, 288, 400, 512, 624];
-const CP_ROWS = { model: { y: 132, label: 'Model' }, aux: { y: 242, label: 'System' } };
+// Compacted. The panel carried 700x290 for content that needed less than half
+// of it: 112px between 40px circles, 110px between two rows of them, and a
+// 176px label gutter for two short words.
+//
+// The circles themselves are NOT smaller — radius stays 20. The problem was the
+// space between the targets, not the targets, and shrinking them would make the
+// panel harder to hit while it got prettier.
+const CP_COL_X = [108, 180, 252, 324, 396];
+const CP_ROWS = { model: { y: 92, label: 'Model' }, aux: { y: 170, label: 'System' } };
+
+// Caption sits clear of the circle; the divider sits clear of the caption.
+// Both DERIVED from the circle radius so a change to the row pitch cannot put
+// the text back on top of the line — which is exactly what happened when the
+// pitch was cut and these were still the numbers tuned for the old one.
+const CP_CAPTION_UP = 30;   // r 20 + 10 clearance
+const CP_DIVIDER_UP = 46;   // caption + its own line height
 
 function cpBtn(row, col, type, label){
   return { row, type, label, cx: CP_COL_X[col], cy: CP_ROWS[row].y, r: 20 };
@@ -4016,7 +4030,7 @@ function cpButtonActivate(btn){
 // hid the softness; as flat DOM pixels a 1:1 backing store would visibly blur
 // the small labels. Oversampling then letting the browser downscale keeps them
 // sharp without touching any of the drawing code's coordinates.
-const CP_W = 700, CP_H = 290, CP_RES = 2; // height trimmed from 320 when the Data Paths row was removed
+const CP_W = 452, CP_H = 212, CP_RES = 2; // height trimmed from 320 when the Data Paths row was removed
 const controlPanelCanvas = document.createElement('canvas');
 controlPanelCanvas.width = CP_W * CP_RES;
 controlPanelCanvas.height = CP_H * CP_RES;
@@ -4058,11 +4072,11 @@ function redrawControlPanel(){
   ctx.restore();
 
   ctx.fillStyle = SI_HOLO.cyan;
-  ctx.font = 'bold 24px monospace';
+  ctx.font = 'bold 19px monospace';
   ctx.textAlign = 'center';
-  ctx.fillText('Borg Control', w/2, 32);
+  ctx.fillText('Borg Control', w/2, 26);
   ctx.strokeStyle = 'rgba(89,224,255,0.35)';
-  ctx.beginPath(); ctx.moveTo(16, 46); ctx.lineTo(w-16, 46); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(14, 38); ctx.lineTo(w-14, 38); ctx.stroke();
 
   // Every label is derived from CP_BUTTONS. Nothing about the panel's text is
   // written down twice, so a control cannot exist without a caption again.
@@ -4073,13 +4087,13 @@ function redrawControlPanel(){
     if (rowIdx > 0){
       // Divider above each row after the first.
       ctx.strokeStyle = 'rgba(89,224,255,0.25)';
-      ctx.beginPath(); ctx.moveTo(16, row.y - 60); ctx.lineTo(w-16, row.y - 60); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(14, row.y - CP_DIVIDER_UP); ctx.lineTo(w-14, row.y - CP_DIVIDER_UP); ctx.stroke();
     }
-    ctx.font = '13px monospace'; ctx.fillStyle = SI_HOLO.muted; ctx.textAlign = 'center';
+    ctx.font = '12px monospace'; ctx.fillStyle = SI_HOLO.muted; ctx.textAlign = 'center';
     CP_BUTTONS.filter(b => b.row === rowKey)
-              .forEach(b => ctx.fillText(b.label, b.cx, row.y - 40));
-    ctx.font = 'bold 16px monospace'; ctx.fillStyle = SI_HOLO.ink; ctx.textAlign = 'left';
-    ctx.fillText(row.label, 20, row.y + 6);
+              .forEach(b => ctx.fillText(b.label, b.cx, row.y - CP_CAPTION_UP));
+    ctx.font = 'bold 14px monospace'; ctx.fillStyle = SI_HOLO.ink; ctx.textAlign = 'left';
+    ctx.fillText(row.label, 14, row.y + 5);
   });
 
   CP_BUTTONS.forEach(btn => {
