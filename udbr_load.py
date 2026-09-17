@@ -64,7 +64,69 @@ def parse_conditions(text):
     return out
 
 # ---------------------------------------------------------------- ingest
-df = pd.read_excel(SRC, dtype=str).fillna('')
+def read_dump(path):
+    """Read a UDBR export in either shape AIM produces.
+
+    The report format carries a banner on the first row —
+        UDBR | Date: 09/17/2026 | Time: 11:29 AM | <agency> | <address>
+    — which pushes the header down a row, and styles the headers for display:
+    'TARGET FIELD' where the older export said 'TargetField'.
+
+    Both are handled, and the banner is DETECTED rather than assumed, so the
+    older dumps keep loading. Hardcoding a header row would have made this
+    loader work on exactly the file in front of it.
+
+    Returns (frame, exported_date or None).
+    """
+    head = pd.read_excel(path, header=None, dtype=str, nrows=2).fillna('')
+    row0 = [str(v).strip() for v in head.iloc[0].tolist()]
+
+    # A banner row has content in the first cell and nothing after it; a header
+    # row has many. Tested on the name, not the position, because a future
+    # banner may say something else entirely.
+    filled = [v for v in row0 if v]
+    banner = len(filled) == 1 and 'SECTION' not in filled[0].upper()
+
+    df = pd.read_excel(path, header=1 if banner else 0, dtype=str).fillna('')
+
+    # 'TARGET FIELD' and 'SECTION' become 'TargetField' and 'Section'.
+    #
+    # The test is whether the name is ALL CAPS, not whether it contains a
+    # space. Two earlier attempts failed on this: rewriting everything turned
+    # the older export's 'TargetField' into 'Targetfield', because
+    # str.capitalize() lowercases the rest of the word; and rewriting only
+    # spaced names left single words like 'SECTION' untouched.
+    df.columns = [''.join(w.capitalize() for w in str(c).split())
+                  if str(c).isupper() else str(c)
+                  for c in df.columns]
+
+    exported = None
+    if banner:
+        text = filled[0]
+        m = re.search(r'Date:\s*([\d/]+)(?:\s*\|\s*Time:\s*([\d:]+\s*[APap][Mm]))?', text)
+        if not m:
+            # A banner whose date cannot be read is a REFUSAL, not a fallback.
+            # exported_at orders the snapshot picker; a wrong date there is
+            # worse than a failed load, because nothing looks wrong afterwards.
+            raise SystemExit(
+                f'BANNER DATE UNREADABLE: {text[:90]}\n'
+                f'The export carries a banner but its date could not be parsed. '
+                f'Loading would record the wrong export date, which is what the '
+                f'snapshot picker orders by.')
+        stamp = m.group(1) + (' ' + m.group(2) if m.group(2) else '')
+        for f in ('%m/%d/%Y %I:%M %p', '%m/%d/%Y'):
+            try:
+                exported = datetime.datetime.strptime(stamp.strip(), f).date().isoformat()
+                break
+            except ValueError:
+                continue
+        if exported is None:
+            raise SystemExit(f'BANNER DATE UNRECOGNISED: {stamp!r}')
+        print(f'  banner: exported {exported}')
+    return df, exported
+
+
+df, BANNER_DATE = read_dump(SRC)
 # Validate the shape before anything reads it. AIM's export has changed once
 # already; a rename should stop the load, not surface three checks deep.
 from udbr_domain import validate_dump
@@ -73,7 +135,9 @@ if _shape['unexpected']:
     print(f"  note: {len(_shape['unexpected'])} column(s) not used by any check: "
           f"{', '.join(_shape['unexpected'][:6])}")
 sha = hashlib.sha256(open(SRC, 'rb').read()).hexdigest()
-exported = datetime.datetime.fromtimestamp(os.path.getmtime(SRC)).date().isoformat()
+# The banner's date beats the file's modification time, which changes the
+# moment anyone copies or re-uploads the export.
+exported = BANNER_DATE or datetime.datetime.fromtimestamp(os.path.getmtime(SRC)).date().isoformat()
 
 fresh = not os.path.exists(DB)
 cx = sqlite3.connect(DB)

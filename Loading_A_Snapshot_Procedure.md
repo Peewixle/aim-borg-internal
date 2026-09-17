@@ -2,7 +2,7 @@
 
 Prepared by Michael McIntyre  |  September 17, 2026
 
-**Version 1**
+**Version 2**
 
 ---
 
@@ -63,11 +63,20 @@ dependency change.
 
 ## Procedure
 
-**1. Export the UDBR from AIM QA** in the same shape as the production export —
-one row per profile and per mapping rule, with `Section`, `Tab`, `TargetField`,
-`Priority`, `Conditions`, `OutcomeType` and `OutcomeValue` present. The loader
-validates this and fails loudly rather than loading something it half
-understands.
+**1. Export the UDBR from AIM.** Either export shape loads:
+
+- the **report format**, with a banner on the first row and display headers
+  (`TARGET FIELD`), which is how exports now arrive
+- the **older format**, headers on the first row in field names (`TargetField`)
+
+The banner is detected, not assumed, and its date becomes the snapshot's export
+date — better than the file's modification time, which changes whenever the
+file is copied. A banner whose date cannot be read **stops the load** rather
+than falling back, because a wrong export date is what the snapshot picker
+orders by and nothing would look wrong afterwards.
+
+The leading `Id` column in `UDBR_3.xlsx` was an export workaround and is not
+part of the format. Nothing reads it; its absence needs no handling.
 
 **2. Get the file onto Render.** The shell cannot read a local machine. Commit
 the xlsx to the repo, or fetch it from a URL in the shell.
