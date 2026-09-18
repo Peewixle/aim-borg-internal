@@ -284,7 +284,10 @@ class Handler(BaseHTTPRequestHandler):
         # copy would hand one person another's permissions.
         # One artifact at every path: no directory listing, no traversal
         # surface, and no second file to forget about.
-        self._send(200, self._with_studio(user))
+        # Signed in, so the confidentiality gate is skipped: it was the only
+        # protection before accounts existed and is now a second lock on a
+        # door already locked.
+        self._send(200, self._mark_signed_in(self._with_studio(user)))
 
     def _with_studio(self, user):
         """Inject the studio payload.
@@ -342,6 +345,34 @@ class Handler(BaseHTTPRequestHandler):
         js = (f'\n<script>window.AIM_UDBR=window.AIM_UDBR||{{}};'
               f'window.AIM_UDBR.studio={json.dumps(block)};</script>').encode()
         return BODY[:end] + js + BODY[end:]
+
+    @staticmethod
+    def _mark_signed_in(body):
+        """Tell the page a real sign-in already happened.
+
+        The confidentiality gate was the ONLY protection when this was a
+        standalone file anyone could open. Server authentication (BG-33) made
+        it a second lock on a door already locked — and its credential travels
+        in the page, so it stops nobody who has got this far.
+
+        Injected EARLY, ahead of every other script, because the gate decides
+        whether to show itself while the page is still loading.
+
+        The demo build keeps the gate: it has no server, no accounts, and
+        nothing else in front of it.
+        """
+        mark = b'<script>window.AIM_BORG_SIGNED_IN=true;</script>'
+        if mark in body:
+            return body
+        i = body.find(b'<head>')
+        if i >= 0:
+            i += len(b'<head>')
+        else:
+            i = body.find(b'<body>')
+            if i < 0:
+                return body
+            i += len(b'<body>')
+        return body[:i] + mark + body[i:]
 
     def do_HEAD(self):
         self.do_GET()
