@@ -94,16 +94,43 @@ padding:10px;border-radius:6px;cursor:pointer;font:14px ui-monospace,Menlo,monos
 button:hover{{background:#12313f;color:#d6f4fb}}
 .err{{margin-top:14px;padding:8px 10px;border-radius:4px;font-size:12.5px;
 background:rgba(200,69,47,.14);border:1px solid rgba(200,69,47,.5);color:#f08a72}}
-.note{{margin-top:18px;font-size:11px;color:#5d6b78;line-height:1.5}}</style></head><body>
+.note{{margin-top:18px;font-size:11px;color:#5d6b78;line-height:1.5}}
+/* Reveal the password. Nine failed attempts in a row is usually a typo or an
+   autofill nobody can see, and a locked account is a worse outcome than the
+   password being briefly visible on an internal sign-in. */
+.pwrap{{position:relative}}
+.pwrap input{{padding-right:42px;width:100%;box-sizing:border-box}}
+#peek{{position:absolute;right:6px;top:50%;transform:translateY(-50%);
+width:30px;height:30px;padding:0;margin:0;background:none;border:0;cursor:pointer;
+color:#5d6b78;font-size:15px;line-height:1}}
+#peek:hover{{color:#7fd8e8}}
+#peek.on{{color:#7fd8e8}}</style></head><body>
 <form method="POST" action="/login"><h1>AIM BORG</h1>
 <p class="sub">Internal. Production customer configuration.</p>
 <label for="u">Username</label>
 <input id="u" name="username" autocomplete="username" autofocus value="{user}">
 <label for="p">Password</label>
+<div class="pwrap">
 <input id="p" name="password" type="password" autocomplete="current-password">
+<button type="button" id="peek" tabindex="-1" aria-label="Show password">&#128065;</button>
+</div>
 <button type="submit">Sign in</button>{err}
 <div class="note">Access is logged against your account.</div>
-</form></body></html>"""
+</form>
+<script>
+(function(){{
+  var b=document.getElementById('peek'), f=document.getElementById('p');
+  if(!b||!f) return;
+  b.addEventListener('click', function(){{
+    var show = f.type === 'password';
+    f.type = show ? 'text' : 'password';
+    b.classList.toggle('on', show);
+    b.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+    f.focus();
+  }});
+}})();
+</script>
+</body></html>"""
 
 
 def login_page(msg='', user=''):
@@ -170,10 +197,29 @@ class Handler(BaseHTTPRequestHandler):
             u = (f.get('username') or '').strip()
             ok, res = auth.verify(u, f.get('password') or '', self._ip())
             if not ok:
-                # One message for every failure. Distinguishing "no such user"
-                # from "wrong password" hands over a list of real usernames.
-                return self._send(401, login_page(
-                    'Sign-in failed. Check your details and try again.', u))
+                # ONE MESSAGE for a wrong password and a missing account:
+                # distinguishing them hands over a list of real usernames.
+                #
+                # A LOCKOUT IS DIFFERENT and is said plainly. You already have
+                # to know the username to lock it, so naming it tells an
+                # attacker nothing — while the person signing in was left
+                # retyping a password that was never going to be checked, each
+                # attempt logged against an account already locked.
+                msg = 'Sign-in failed. Check your details and try again.'
+                if isinstance(res, dict) and res.get('reason') == 'locked':
+                    when = str(res.get('until') or '')
+                    clock = when[11:16] if len(when) >= 16 else when
+                    msg = (f'This account is locked until {clock} after too many '
+                           f'failed attempts.' if clock else
+                           'This account is locked after too many failed attempts.')
+                elif isinstance(res, dict) and res.get('reason') == 'disabled':
+                    msg = 'This account is disabled. Ask for it to be re-enabled.'
+                elif isinstance(res, dict) and res.get('remaining', 99) <= 3:
+                    # A count only once it matters, so the warning means
+                    # something when it appears.
+                    n = res['remaining']
+                    msg += f' {n} attempt{"" if n == 1 else "s"} left before lockout.'
+                return self._send(401, login_page(msg, u))
             token = auth.create_session(res['username'], self._ip(),
                                         self.headers.get('User-Agent'))
             return self._send(302, b'', {

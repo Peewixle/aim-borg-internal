@@ -161,13 +161,16 @@ class Auth:
             # faster than a wrong password.
             self._hash(password or '', secrets.token_bytes(16))
             self.log(username, 'login.fail', ip, 'no such account')
-            return False, 'no such account'
+            return False, dict(reason='no such account')
         if row['disabled']:
             self.log(username, 'login.fail', ip, 'account disabled')
-            return False, 'disabled'
+            return False, dict(reason='disabled')
         if row['locked_until'] and datetime.fromisoformat(row['locked_until']) > _now():
             self.log(username, 'login.fail', ip, 'locked out')
-            return False, 'locked'
+            # WHEN it lifts, not just that it is locked. Without this the
+            # person retypes a password that is not being checked, and each
+            # attempt is logged against an account already locked.
+            return False, dict(reason='locked', until=row['locked_until'])
 
         got = self._hash(password or '', bytes(row['salt']))
         if not hmac.compare_digest(got, bytes(row['hash'])):
@@ -178,7 +181,12 @@ class Auth:
                             (fails, lock, row['username']))
             self.cx.commit()
             self.log(row['username'], 'login.fail', ip, f'wrong password ({fails})')
-            return False, 'wrong password'
+            # The attempt that CAUSES the lock says so. Reporting it only on the
+            # next attempt means the person tries again immediately, extending
+            # the lock they have not been told about.
+            return False, dict(reason='locked' if lock else 'wrong password',
+                               until=lock, fails=fails,
+                               remaining=max(0, MAX_FAILS - fails))
 
         self.cx.execute('UPDATE account SET fails=0, locked_until=NULL WHERE username=?',
                         (row['username'],))
