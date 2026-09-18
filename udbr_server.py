@@ -36,13 +36,24 @@ from udbr_snapshots import (snapshot_list, available_files, start_load,
 
 PORT     = int(os.environ.get('PORT', 8080))
 FILE     = os.environ.get('BORG_FILE', 'internal.html')
+# ABSOLUTE DEFAULTS, NOT RELATIVE ONES.
+#
+# These were 'auth.db' and 'udbr.db' — bare filenames, resolved against whatever
+# directory the process happened to start in. sqlite3.connect() CREATES a
+# missing file without complaint, so a shell command run without these
+# variables set made a fresh empty database beside itself and reported success.
+#
+# That cost an hour: a password reset ran against an empty auth.db in the app
+# directory, said it had worked, and changed nothing the server was reading.
+# Both databases live on the data drive; anything else is a mistake worth
+# failing on rather than silently accommodating.
+DATA_ROOT = os.environ.get('BORG_DATA_DIR', '/data')
+AUTH_DB  = os.environ.get('BORG_AUTH_DB', os.path.join(DATA_ROOT, 'auth.db'))
+UDBR_DB  = os.environ.get('BORG_UDBR_DB', os.path.join(DATA_ROOT, 'udbr.db'))
 # Where exports are placed for loading, and where the loader lives. Both
 # overridable, because the deployed layout and a test layout differ.
-DATA_DIR = os.environ.get('BORG_DATA_DIR', os.path.dirname(
-    os.environ.get('BORG_UDBR_DB', '/data/udbr.db')) or '/data')
+DATA_DIR = DATA_ROOT
 APP_DIR  = os.environ.get('BORG_APP_DIR', os.path.dirname(os.path.abspath(__file__)))
-AUTH_DB  = os.environ.get('BORG_AUTH_DB', 'auth.db')
-UDBR_DB  = os.environ.get('BORG_UDBR_DB', 'udbr.db')
 SEED     = os.environ.get('BORG_USERS')
 COOKIE   = 'borg_session'
 SECURE   = os.environ.get('BORG_INSECURE_COOKIE') != '1'
@@ -559,7 +570,13 @@ if __name__ == '__main__':
     print(f'AIM BORG server on :{PORT}')
     print(f'  serving {os.path.basename(FILE)} ({len(BODY)/1048576:.2f} MB)')
     print('  accounts: ' + ', '.join(u['username'] for u in auth.users()))
-    print(f'  store: {UDBR_DB if designs else "none — studio disabled"}')
+    # BOTH databases named, as absolute paths. The environment not taking used
+    # to be invisible: the server read one file while a shell command wrote
+    # another, and nothing on screen said so.
+    print(f'  accounts db: {os.path.abspath(AUTH_DB)}')
+    print(f'  store db:    {os.path.abspath(UDBR_DB)}'
+          + ('' if designs else '   (studio disabled)'))
+    print(f'  data drive:  {os.path.abspath(DATA_DIR)}')
     print(f'  sessions: {SESSION_HOURS}h idle, {ABSOLUTE_HOURS}h absolute')
     print('  every route requires a signed-in account; no public path')
     srv.serve_forever()
