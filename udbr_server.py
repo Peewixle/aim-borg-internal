@@ -16,7 +16,8 @@ FAILS CLOSED. With no accounts and no seed the process exits rather than
 serving. The state this replaces was worse than no authentication: the code
 supported it, the environment was never set, and it served anyway.
 """
-import os, sys, json, html, threading
+import os
+import sys, sys, json, html, threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -29,9 +30,17 @@ from udbr_snapcheck import check_snapshot
 from udbr_design_workbook import build as build_workbook
 from udbr_trace import trace as build_trace, rule_detail, source_map, set_review
 from udbr_selection import payer_rules, profile_rules
+from udbr_snapshots import (snapshot_list, available_files, start_load,
+                            load_status, snapshot_payload,
+                            delete as snap_delete, retire as snap_retire)
 
 PORT     = int(os.environ.get('PORT', 8080))
 FILE     = os.environ.get('BORG_FILE', 'internal.html')
+# Where exports are placed for loading, and where the loader lives. Both
+# overridable, because the deployed layout and a test layout differ.
+DATA_DIR = os.environ.get('BORG_DATA_DIR', os.path.dirname(
+    os.environ.get('BORG_UDBR_DB', '/data/udbr.db')) or '/data')
+APP_DIR  = os.environ.get('BORG_APP_DIR', os.path.dirname(os.path.abspath(__file__)))
 AUTH_DB  = os.environ.get('BORG_AUTH_DB', 'auth.db')
 UDBR_DB  = os.environ.get('BORG_UDBR_DB', 'udbr.db')
 SEED     = os.environ.get('BORG_USERS')
@@ -186,6 +195,21 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        # A handler that raises drops the connection with no response and no
+        # log line: the browser sees a failed fetch, the server looks healthy,
+        # and there is nothing to read. Every GET now answers, even when it
+        # answers with a failure.
+        try:
+            return self._get()
+        except Exception as e:                                   # noqa: BLE001
+            import traceback
+            tb = traceback.format_exc()
+            sys.stderr.write(tb)
+            sys.stderr.flush()
+            return self._json({'error': f'{type(e).__name__}: {e}',
+                               'where': self.path}, 500)
+
+    def _get(self):
         path = urlparse(self.path).path
         if path == '/logout':
             auth.destroy_session(self._cookies().get(COOKIE))
@@ -298,6 +322,39 @@ class Handler(BaseHTTPRequestHandler):
             if path == '/api/design/claim':
                 ok, holder = designs.claim(did, who)
                 return self._json({'writable': ok, 'heldBy': holder})
+            # BG-71 write side. Loading runs on a thread and returns its id
+            # immediately; the surface polls load-status. A load is 400-600 rows
+            # parsed, reconciled and written across four tables, so holding the
+            # request would hold the interface.
+            if path == '/api/snapshots/load':
+                fn = payload.get('file')
+                if not fn:
+                    return self._json({'error': 'file required'}, 400)
+                try:
+                    lid = start_load(UDBR_DB, DATA_DIR, fn, APP_DIR)
+                except (ValueError, FileNotFoundError) as e:
+                    return self._json({'error': str(e)}, 400)
+                return self._json(dict(load=lid, file=fn))
+
+            if path == '/api/snapshots/delete':
+                sid = payload.get('snapshot')
+                try:
+                    return self._json(snap_delete(UDBR_DB, int(sid)))
+                except PermissionError as e:
+                    # A design edits it or derives from it. Refused with the
+                    # design named, so the surface can say why rather than only
+                    # that it failed.
+                    return self._json({'error': str(e)}, 409)
+                except (ValueError, TypeError) as e:
+                    return self._json({'error': str(e)}, 400)
+
+            if path == '/api/snapshots/retire':
+                try:
+                    return self._json(snap_retire(UDBR_DB, int(payload.get('snapshot')),
+                                                  bool(payload.get('retired', True))))
+                except (ValueError, TypeError) as e:
+                    return self._json({'error': str(e)}, 400)
+
             if path == '/api/design/apply':
                 sid, n = designs.apply(did, who, payload['actions'])
                 auth.log(who, 'design.apply', self._ip(), f'design {did}, {n} action(s)')
@@ -338,6 +395,32 @@ class Handler(BaseHTTPRequestHandler):
                 auth.log(who, 'design.checks', self._ip(),
                          f'design {did}, {res["total"]} findings')
                 return self._json(res)
+            # BG-71. The store is the source of truth for what snapshots
+            # exist. Read when asked for, not baked into the page and not read
+            # once at startup — a snapshot present in the store appears without
+            # a rebuild and without a restart.
+            if path == '/api/snapshots':
+                return self._json(dict(snapshots=snapshot_list(UDBR_DB)))
+
+            # The exports sitting on the data drive, put there outside the Borg.
+            if path == '/api/snapshots/files':
+                return self._json(dict(files=available_files(UDBR_DB, DATA_DIR),
+                                       dir=DATA_DIR))
+
+            # One snapshot's data, when that snapshot is selected. The baked
+            # payload carried every snapshot's data at all times.
+            if path == '/api/snapshot':
+                sid = int(q['id'][0]) if 'id' in q else None
+                if not sid:
+                    return self._json({'error': 'id required'}, 400)
+                return self._json(snapshot_payload(UDBR_DB, sid))
+
+            if path == '/api/snapshots/load-status':
+                st = load_status(q['load'][0]) if 'load' in q else None
+                if st is None:
+                    return self._json({'error': 'unknown load'}, 404)
+                return self._json(st)
+
             # BG-66 and BG-67. The whole rule set for one rule type, read
             # from its node, independent of any profile.
             if path.startswith('/api/selection/'):
